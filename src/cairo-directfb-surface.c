@@ -31,12 +31,14 @@
  *
  * Contributor(s):
  *    Chris Wilson <chris@chris-wilson.co.uk>
+ *    Piotr Tworek <tworaz666@gmail.com>
  */
 
 #include "cairoint.h"
 #include "cairo-directfb.h"
 
 #include "cairo-clip-private.h"
+#include "cairo-clip-inline.h"
 #include "cairo-compositor-private.h"
 #include "cairo-default-context-private.h"
 #include "cairo-error-private.h"
@@ -56,66 +58,79 @@
 slim_hidden_proto(cairo_directfb_surface_create);
 
 typedef struct _cairo_dfb_surface {
-    cairo_image_surface_t image;
+	cairo_image_surface_t	image;
 
-    IDirectFB			*dfb;
-    IDirectFBSurface		*dfb_surface;
+	IDirectFB		*dfb;
+	IDirectFBSurface	*dfb_surface;
 
-    unsigned             blit_premultiplied : 1;
+	unsigned		blit_premultiplied : 1;
+	unsigned		clipped : 1;
 } cairo_dfb_surface_t;
 
 static cairo_content_t
 _directfb_format_to_content (DFBSurfacePixelFormat format)
 {
-    cairo_content_t content = 0;
+	cairo_content_t content = 0;
 
-    if (DFB_PIXELFORMAT_HAS_ALPHA (format))
-	content |= CAIRO_CONTENT_ALPHA;
-    if (DFB_COLOR_BITS_PER_PIXEL (format))
-	content |= CAIRO_CONTENT_COLOR_ALPHA;
+	if (DFB_PIXELFORMAT_HAS_ALPHA (format))
+		content |= CAIRO_CONTENT_ALPHA;
+	if (DFB_COLOR_BITS_PER_PIXEL (format))
+		content |= CAIRO_CONTENT_COLOR_ALPHA;
 
-    assert(content);
-    return content;
+	assert(content);
+	return content;
 }
 
 static inline pixman_format_code_t
 _directfb_to_pixman_format (DFBSurfacePixelFormat format)
 {
-    switch (format) {
-    case DSPF_UNKNOWN: return 0;
-    case DSPF_ARGB1555: return PIXMAN_a1r5g5b5;
-    case DSPF_RGB16: return PIXMAN_r5g6b5;
-    case DSPF_RGB24: return PIXMAN_r8g8b8;
-    case DSPF_RGB32: return PIXMAN_x8r8g8b8;
-    case DSPF_ARGB: return PIXMAN_a8r8g8b8;
-    case DSPF_A8: return PIXMAN_a8;
-    case DSPF_YUY2: return PIXMAN_yuy2;
-    case DSPF_RGB332: return PIXMAN_r3g3b2;
-    case DSPF_UYVY: return 0;
-    case DSPF_I420: return 0;
-    case DSPF_YV12: return PIXMAN_yv12;
-    case DSPF_LUT8: return 0;
-    case DSPF_ALUT44: return 0;
-    case DSPF_AiRGB: return 0;
-    case DSPF_A1: return 0; /* bit reversed, oops */
-    case DSPF_NV12: return 0;
-    case DSPF_NV16: return 0;
-    case DSPF_ARGB2554: return 0;
-    case DSPF_ARGB4444: return PIXMAN_a4r4g4b4;
-    case DSPF_NV21: return 0;
-    case DSPF_AYUV: return 0;
-    case DSPF_A4: return PIXMAN_a4;
-    case DSPF_ARGB1666: return 0;
-    case DSPF_ARGB6666: return 0;
-    case DSPF_RGB18: return 0;
-    case DSPF_LUT2: return 0;
-    case DSPF_RGB444: return PIXMAN_x4r4g4b4;
-    case DSPF_RGB555: return PIXMAN_x1r5g5b5;
-#if DFB_NUM_PIXELFORMATS >= 29
-    case DSPF_BGR555: return PIXMAN_x1b5g5r5;
-#endif
-    }
-    return 0;
+	switch (format) {
+	case DSPF_ARGB1555:  return PIXMAN_a1r5g5b5;
+	case DSPF_RGB16:     return PIXMAN_r5g6b5;
+	case DSPF_RGB24:     return PIXMAN_r8g8b8;
+	case DSPF_RGB32:     return PIXMAN_x8r8g8b8;
+	case DSPF_ARGB:      return PIXMAN_a8r8g8b8;
+	case DSPF_A8:        return PIXMAN_a8;
+	case DSPF_YUY2:      return PIXMAN_yuy2;
+	case DSPF_RGB332:    return PIXMAN_r3g3b2;
+	case DSPF_YV12:      return PIXMAN_yv12;
+	case DSPF_ARGB4444:  return PIXMAN_a4r4g4b4;
+	case DSPF_A4:        return PIXMAN_a4;
+	case DSPF_RGB444:    return PIXMAN_x4r4g4b4;
+	case DSPF_RGB555:    return PIXMAN_x1r5g5b5;
+	case DSPF_BGR555:    return PIXMAN_x1b5g5r5;
+
+	case DSPF_UNKNOWN:
+	case DSPF_UYVY:
+	case DSPF_I420:
+	case DSPF_LUT8:
+	case DSPF_ALUT44:
+	case DSPF_AiRGB:
+	case DSPF_A1:
+	case DSPF_NV12:
+	case DSPF_NV16:
+	case DSPF_ARGB2554:
+	case DSPF_RGBA4444:
+	case DSPF_NV21:
+	case DSPF_AYUV:
+	case DSPF_ARGB1666:
+	case DSPF_ARGB6666:
+	case DSPF_RGB18:
+	case DSPF_LUT2:
+	case DSPF_RGBA5551:
+	case DSPF_YUV444P:
+	case DSPF_ARGB8565:
+	case DSPF_AVYU:
+	case DSPF_VYU:
+	case DSPF_A1_LSB:
+	case DSPF_YV16:
+	case DSPF_ABGR:
+	case DSPF_RGBAF88871:
+	case DSPF_LUT4:
+	case DSPF_ALUT8:
+	case DSPF_LUT1:
+		return 0;
+	}
 }
 
 static cairo_surface_t *
@@ -124,108 +139,107 @@ _cairo_dfb_surface_create_similar (void            *abstract_src,
 				   int              width,
 				   int              height)
 {
-    cairo_dfb_surface_t *other  = abstract_src;
-    DFBSurfacePixelFormat     format;
-    IDirectFBSurface      *buffer;
-    DFBSurfaceDescription  dsc;
-    cairo_surface_t *surface;
+	cairo_dfb_surface_t *other = abstract_src;
+	DFBSurfacePixelFormat format;
+	IDirectFBSurface *buffer;
+	DFBSurfaceDescription dsc;
+	cairo_surface_t *surface;
 
-    if (width <= 0 || height <= 0)
-	return _cairo_image_surface_create_with_content (content, width, height);
+	if (width <= 0 || height <= 0)
+		return _cairo_image_surface_create_with_content (content, width, height);
 
-    switch (content) {
-    default:
-	ASSERT_NOT_REACHED;
-    case CAIRO_CONTENT_COLOR_ALPHA:
-	format = DSPF_ARGB;
-	break;
-    case CAIRO_CONTENT_COLOR:
-	format = DSPF_RGB32;
-	break;
-    case CAIRO_CONTENT_ALPHA:
-	format = DSPF_A8;
-	break;
-    }
+	switch (content) {
+	default:
+		ASSERT_NOT_REACHED;
+	case CAIRO_CONTENT_COLOR_ALPHA:
+		format = DSPF_ARGB;
+		break;
+	case CAIRO_CONTENT_COLOR:
+		format = DSPF_RGB32;
+		break;
+	case CAIRO_CONTENT_ALPHA:
+		format = DSPF_A8;
+		break;
+	}
 
-    dsc.flags       = DSDESC_WIDTH | DSDESC_HEIGHT | DSDESC_PIXELFORMAT;
-    dsc.caps        = DSCAPS_PREMULTIPLIED;
-    dsc.width       = width;
-    dsc.height      = height;
-    dsc.pixelformat = format;
+	dsc.flags       = DSDESC_WIDTH | DSDESC_HEIGHT | DSDESC_PIXELFORMAT;
+	dsc.caps        = DSCAPS_PREMULTIPLIED;
+	dsc.width       = width;
+	dsc.height      = height;
+	dsc.pixelformat = format;
 
-    if (other->dfb->CreateSurface (other->dfb, &dsc, &buffer))
-	return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_DEVICE_ERROR));
+	if (other->dfb->CreateSurface (other->dfb, &dsc, &buffer))
+		return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_DEVICE_ERROR));
 
-    surface = cairo_directfb_surface_create (other->dfb, buffer);
-    buffer->Release (buffer);
+	surface = cairo_directfb_surface_create (other->dfb, buffer);
+	buffer->Release (buffer);
 
-    return surface;
+	return surface;
 }
 
 static cairo_status_t
 _cairo_dfb_surface_finish (void *abstract_surface)
 {
-    cairo_dfb_surface_t *surface = abstract_surface;
+	cairo_dfb_surface_t *surface = abstract_surface;
 
-    surface->dfb_surface->Release (surface->dfb_surface);
-    return _cairo_image_surface_finish (abstract_surface);
+	surface->dfb_surface->Release (surface->dfb_surface);
+	return _cairo_image_surface_finish (abstract_surface);
 }
 
 static cairo_image_surface_t *
-_cairo_dfb_surface_map_to_image (void *abstract_surface,
+_cairo_dfb_surface_map_to_image (void                        *abstract_surface,
 				 const cairo_rectangle_int_t *extents)
 {
-    cairo_dfb_surface_t *surface = abstract_surface;
+	cairo_dfb_surface_t *surface = abstract_surface;
 
-    if (surface->image.pixman_image == NULL) {
-	IDirectFBSurface *buffer = surface->dfb_surface;
-	pixman_image_t *image;
-	void *data;
-	int pitch;
+	if (surface->image.pixman_image == NULL) {
+		IDirectFBSurface *buffer = surface->dfb_surface;
+		pixman_image_t *image;
+		void *data;
+		int pitch;
 
-	if (buffer->Lock (buffer, DSLF_READ | DSLF_WRITE, &data, &pitch))
-	    return _cairo_image_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+		if (buffer->Lock (buffer, DSLF_READ | DSLF_WRITE, &data, &pitch))
+			return _cairo_image_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
 
-	image = pixman_image_create_bits (surface->image.pixman_format,
-					  surface->image.width,
-					  surface->image.height,
-					  data, pitch);
-	if (image == NULL) {
-	    buffer->Unlock (buffer);
-	    return _cairo_image_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+		image = pixman_image_create_bits (surface->image.pixman_format,
+		                                  surface->image.width,
+		                                  surface->image.height,
+		                                  data, pitch);
+		if (image == NULL) {
+			buffer->Unlock (buffer);
+			return _cairo_image_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+		}
+		_cairo_image_surface_init (&surface->image, image, surface->image.pixman_format);
 	}
-	_cairo_image_surface_init (&surface->image, image, surface->image.pixman_format);
-    }
 
-    return _cairo_surface_map_to_image (&surface->image.base, extents);
+	return &surface->image;
 }
 
 static cairo_int_status_t
-_cairo_dfb_surface_unmap_image (void *abstract_surface,
+_cairo_dfb_surface_unmap_image (void                  *abstract_surface,
 				cairo_image_surface_t *image)
 {
-    cairo_dfb_surface_t *surface = abstract_surface;
-    return _cairo_surface_unmap_image (&surface->image.base, image);
+	cairo_dfb_surface_t *surface = abstract_surface;
+	return _cairo_surface_unmap_image (&surface->image.base, image);
 }
 
 static cairo_status_t
-_cairo_dfb_surface_flush (void *abstract_surface,
+_cairo_dfb_surface_flush (void     *abstract_surface,
 			  unsigned flags)
 {
-    cairo_dfb_surface_t *surface = abstract_surface;
+	cairo_dfb_surface_t *surface = abstract_surface;
 
-    if (flags)
+	if (flags)
+		return CAIRO_STATUS_SUCCESS;
+
+	if (surface->image.pixman_image) {
+		surface->dfb_surface->Unlock (surface->dfb_surface);
+		pixman_image_unref (surface->image.pixman_image);
+		surface->image.pixman_image = NULL;
+		surface->image.data = NULL;
+	}
+
 	return CAIRO_STATUS_SUCCESS;
-
-    if (surface->image.pixman_image) {
-	surface->dfb_surface->Unlock (surface->dfb_surface);
-
-	pixman_image_unref (surface->image.pixman_image);
-	surface->image.pixman_image = NULL;
-	surface->image.data = NULL;
-    }
-
-    return CAIRO_STATUS_SUCCESS;
 }
 
 #if 0
@@ -259,92 +273,92 @@ _directfb_get_operator (cairo_operator_t         operator,
                         DFBSurfaceBlendFunction *ret_srcblend,
                         DFBSurfaceBlendFunction *ret_dstblend)
 {
-    DFBSurfaceBlendFunction srcblend = DSBF_ONE;
-    DFBSurfaceBlendFunction dstblend = DSBF_ZERO;
+	DFBSurfaceBlendFunction srcblend = DSBF_ONE;
+	DFBSurfaceBlendFunction dstblend = DSBF_ZERO;
 
-    switch (operator) {
-    case CAIRO_OPERATOR_CLEAR:
-	srcblend = DSBF_ZERO;
-	dstblend = DSBF_ZERO;
-	break;
-    case CAIRO_OPERATOR_SOURCE:
-	srcblend = DSBF_ONE;
-	dstblend = DSBF_ZERO;
-	break;
-    case CAIRO_OPERATOR_OVER:
-	srcblend = DSBF_ONE;
-	dstblend = DSBF_INVSRCALPHA;
-	break;
-    case CAIRO_OPERATOR_IN:
-	srcblend = DSBF_DESTALPHA;
-	dstblend = DSBF_ZERO;
-	break;
-    case CAIRO_OPERATOR_OUT:
-	srcblend = DSBF_INVDESTALPHA;
-	dstblend = DSBF_ZERO;
-	break;
-    case CAIRO_OPERATOR_ATOP:
-	srcblend = DSBF_DESTALPHA;
-	dstblend = DSBF_INVSRCALPHA;
-	break;
-    case CAIRO_OPERATOR_DEST:
-	srcblend = DSBF_ZERO;
-	dstblend = DSBF_ONE;
-	break;
-    case CAIRO_OPERATOR_DEST_OVER:
-	srcblend = DSBF_INVDESTALPHA;
-	dstblend = DSBF_ONE;
-	break;
-    case CAIRO_OPERATOR_DEST_IN:
-	srcblend = DSBF_ZERO;
-	dstblend = DSBF_SRCALPHA;
-	break;
-    case CAIRO_OPERATOR_DEST_OUT:
-	srcblend = DSBF_ZERO;
-	dstblend = DSBF_INVSRCALPHA;
-	break;
-    case CAIRO_OPERATOR_DEST_ATOP:
-	srcblend = DSBF_INVDESTALPHA;
-	dstblend = DSBF_SRCALPHA;
-	break;
-    case CAIRO_OPERATOR_XOR:
-	srcblend = DSBF_INVDESTALPHA;
-	dstblend = DSBF_INVSRCALPHA;
-	break;
-    case CAIRO_OPERATOR_ADD:
-	srcblend = DSBF_ONE;
-	dstblend = DSBF_ONE;
-	break;
-    case CAIRO_OPERATOR_SATURATE:
+	switch (operator) {
+	case CAIRO_OPERATOR_CLEAR:
+		srcblend = DSBF_ZERO;
+		dstblend = DSBF_ZERO;
+		break;
+	case CAIRO_OPERATOR_SOURCE:
+		srcblend = DSBF_ONE;
+		dstblend = DSBF_ZERO;
+		break;
+	case CAIRO_OPERATOR_OVER:
+		srcblend = DSBF_ONE;
+		dstblend = DSBF_INVSRCALPHA;
+		break;
+	case CAIRO_OPERATOR_IN:
+		srcblend = DSBF_DESTALPHA;
+		dstblend = DSBF_ZERO;
+		break;
+	case CAIRO_OPERATOR_OUT:
+		srcblend = DSBF_INVDESTALPHA;
+		dstblend = DSBF_ZERO;
+		break;
+	case CAIRO_OPERATOR_ATOP:
+		srcblend = DSBF_DESTALPHA;
+		dstblend = DSBF_INVSRCALPHA;
+		break;
+	case CAIRO_OPERATOR_DEST:
+		srcblend = DSBF_ZERO;
+		dstblend = DSBF_ONE;
+		break;
+	case CAIRO_OPERATOR_DEST_OVER:
+		srcblend = DSBF_INVDESTALPHA;
+		dstblend = DSBF_ONE;
+		break;
+	case CAIRO_OPERATOR_DEST_IN:
+		srcblend = DSBF_ZERO;
+		dstblend = DSBF_SRCALPHA;
+		break;
+	case CAIRO_OPERATOR_DEST_OUT:
+		srcblend = DSBF_ZERO;
+		dstblend = DSBF_INVSRCALPHA;
+		break;
+	case CAIRO_OPERATOR_DEST_ATOP:
+		srcblend = DSBF_INVDESTALPHA;
+		dstblend = DSBF_SRCALPHA;
+		break;
+	case CAIRO_OPERATOR_XOR:
+		srcblend = DSBF_INVDESTALPHA;
+		dstblend = DSBF_INVSRCALPHA;
+		break;
+	case CAIRO_OPERATOR_ADD:
+		srcblend = DSBF_ONE;
+		dstblend = DSBF_ONE;
+		break;
+	case CAIRO_OPERATOR_SATURATE:
 	/* XXX This does not work. */
 #if 0
 	srcblend = DSBF_SRCALPHASAT;
 	dstblend = DSBF_ONE;
 	break;
 #endif
-    case CAIRO_OPERATOR_MULTIPLY:
-    case CAIRO_OPERATOR_SCREEN:
-    case CAIRO_OPERATOR_OVERLAY:
-    case CAIRO_OPERATOR_DARKEN:
-    case CAIRO_OPERATOR_LIGHTEN:
-    case CAIRO_OPERATOR_COLOR_DODGE:
-    case CAIRO_OPERATOR_COLOR_BURN:
-    case CAIRO_OPERATOR_HARD_LIGHT:
-    case CAIRO_OPERATOR_SOFT_LIGHT:
-    case CAIRO_OPERATOR_DIFFERENCE:
-    case CAIRO_OPERATOR_EXCLUSION:
-    case CAIRO_OPERATOR_HSL_HUE:
-    case CAIRO_OPERATOR_HSL_SATURATION:
-    case CAIRO_OPERATOR_HSL_COLOR:
-    case CAIRO_OPERATOR_HSL_LUMINOSITY:
-    default:
-	return FALSE;
-    }
+	case CAIRO_OPERATOR_MULTIPLY:
+	case CAIRO_OPERATOR_SCREEN:
+	case CAIRO_OPERATOR_OVERLAY:
+	case CAIRO_OPERATOR_DARKEN:
+	case CAIRO_OPERATOR_LIGHTEN:
+	case CAIRO_OPERATOR_COLOR_DODGE:
+	case CAIRO_OPERATOR_COLOR_BURN:
+	case CAIRO_OPERATOR_HARD_LIGHT:
+	case CAIRO_OPERATOR_SOFT_LIGHT:
+	case CAIRO_OPERATOR_DIFFERENCE:
+	case CAIRO_OPERATOR_EXCLUSION:
+	case CAIRO_OPERATOR_HSL_HUE:
+	case CAIRO_OPERATOR_HSL_SATURATION:
+	case CAIRO_OPERATOR_HSL_COLOR:
+	case CAIRO_OPERATOR_HSL_LUMINOSITY:
+	default:
+		return FALSE;
+	}
 
-    *ret_srcblend = srcblend;
-    *ret_dstblend = dstblend;
+	*ret_srcblend = srcblend;
+	*ret_dstblend = dstblend;
 
-    return TRUE;
+	return TRUE;
 }
 #define RUN_CLIPPED(surface, clip_region, clip, func) {\
     if ((clip_region) != NULL) {\
@@ -387,7 +401,243 @@ _directfb_get_operator (cairo_operator_t         operator,
         func;\
     }\
 }
+#endif
 
+static DFBSurfacePixelFormat
+_dfb_format_from_cairo_format (cairo_format_t fmt)
+{
+	switch(fmt) {
+	case CAIRO_FORMAT_INVALID:
+	case CAIRO_FORMAT_RGB30:
+		ASSERT_NOT_REACHED;
+	case CAIRO_FORMAT_ARGB32:
+		return DSPF_ARGB;
+	case CAIRO_FORMAT_RGB24:
+		return DSPF_RGB24;
+	case CAIRO_FORMAT_A8:
+		return DSPF_A8;
+	case CAIRO_FORMAT_A1:
+		return DSPF_A1;
+	case CAIRO_FORMAT_RGB16_565:
+		return DSPF_RGB16;
+	}
+
+	return DSPF_A1;
+}
+
+static DFBRectangle
+_dfb_rect_from_cairo_box (const cairo_box_t box)
+{
+	DFBRectangle rect;
+	rect.x = _cairo_fixed_integer_round(box.p1.x);
+	rect.y = _cairo_fixed_integer_round(box.p1.y);
+	rect.w = abs(_cairo_fixed_integer_round(box.p2.x) - rect.x);
+	rect.h = abs(_cairo_fixed_integer_round(box.p2.y) - rect.y);
+
+	return rect;
+}
+
+static DFBRectangle
+_dfb_rect_from_cairo_box_translate (const cairo_box_t box, const cairo_matrix_t *matrix)
+{
+	DFBRectangle rect;
+
+	double x1 = _cairo_fixed_to_double (box.p1.x);
+	double y1 = _cairo_fixed_to_double (box.p1.y);
+	double x2 = _cairo_fixed_to_double (box.p2.x);
+	double y2 = _cairo_fixed_to_double (box.p2.y);
+
+	cairo_matrix_transform_point (matrix, &x1, &y1);
+	cairo_matrix_transform_point (matrix, &x2, &y2);
+
+	rect.x = x1;
+	rect.y = y1;
+	rect.w = abs(x2 - x1);
+	rect.h = abs(y2 - y1);
+
+	return rect;
+}
+
+static cairo_int_status_t
+_cairo_dfb_surface_set_clip (cairo_dfb_surface_t *ds,
+                             const cairo_clip_t *clip)
+{
+	DFBResult result = DFB_OK;
+
+	if (clip == NULL && ds->clipped) {
+		ds->clipped = 0;
+		result = ds->dfb_surface->SetClip(ds->dfb_surface, NULL);
+	} else if (clip && !_cairo_clip_is_all_clipped(clip)) {
+		DFBRegion region;
+		region.x1 = clip->extents.x;
+		region.y1 = clip->extents.y;
+		region.x2 = region.x1 + clip->extents.width;
+		region.y2 = region.y1 + clip->extents.height;
+		result = ds->dfb_surface->SetClip(ds->dfb_surface,  &region);
+		ds->clipped = 1;
+	}
+
+	if (result == DFB_OK) {
+		return CAIRO_INT_STATUS_SUCCESS;
+	} else {
+		return CAIRO_INT_STATUS_UNSUPPORTED;
+	}
+}
+
+static cairo_int_status_t
+_cairo_dfb_surface_fill_solid (cairo_dfb_surface_t *destination,
+                               cairo_operator_t op,
+                               const cairo_pattern_t *pattern,
+			       const cairo_path_fixed_t *path)
+{
+#if 0
+	DFBSurfaceBlendFunction   sblend;
+	DFBSurfaceBlendFunction   dblend;
+	if (! _directfb_get_operator (op, &sblend, &dblend))
+		return CAIRO_INT_STATUS_UNSUPPORTED;
+#endif
+	const cairo_solid_pattern_t *solid = (cairo_solid_pattern_t *)(pattern);
+	DFBRectangle rect;
+	u8 r, g, b, a;
+	cairo_box_t box;
+
+	assert(_cairo_path_fixed_is_rectangle(path, &box));
+
+	r = solid->color.red_short;
+	g = solid->color.green_short;
+	b = solid->color.blue_short;
+	a = solid->color.alpha_short;
+
+	rect = _dfb_rect_from_cairo_box(box);
+
+//	fprintf(stderr, "TODO: %s, (%d, %d, %d, %d)\n", __func__, rect.x, rect.y, rect.w, rect.h);
+
+	destination->dfb_surface->SetColor(destination->dfb_surface, r, g, b, a);
+	destination->dfb_surface->FillRectangle(destination->dfb_surface, rect.x, rect.y, rect.w, rect.h);
+
+	return CAIRO_INT_STATUS_SUCCESS;
+}
+
+static cairo_int_status_t
+_cairo_dfb_surface_fill_surface (cairo_dfb_surface_t *destination,
+                                 const cairo_pattern_t *pattern,
+				 const cairo_path_fixed_t *path)
+{
+	const cairo_surface_pattern_t *spattern = (cairo_surface_pattern_t *)(pattern);
+	cairo_surface_t *surface = spattern->surface;
+	//IDirectFBSurface *src = surface->dfb_surface;
+	IDirectFBSurface *dst = destination->dfb_surface;
+
+	if (surface->type == CAIRO_SURFACE_TYPE_DIRECTFB) {
+		fprintf(stderr, "%s, CAIRO_SURFACE_TYPE_DIRECTFB\n", __func__);
+	} else {
+		cairo_image_surface_t *imgsurf = NULL;
+
+		if (surface->type == CAIRO_SURFACE_TYPE_IMAGE) {
+			imgsurf = (cairo_image_surface_t *) surface;
+		} else {
+			void *image_extra;
+			if (_cairo_surface_acquire_source_image (surface, &imgsurf, &image_extra) != CAIRO_STATUS_SUCCESS) {
+				return CAIRO_INT_STATUS_UNSUPPORTED;
+			}
+		}
+
+		cairo_box_t box;
+		assert(_cairo_path_fixed_is_rectangle(path, &box));
+
+		DFBRectangle r1 = _dfb_rect_from_cairo_box(box);
+		DFBRectangle r2 = _dfb_rect_from_cairo_box_translate(box, &pattern->matrix);
+
+		DFBSurfaceDescription dsc;
+		dsc.flags       = DSDESC_WIDTH | DSDESC_HEIGHT | DSDESC_PIXELFORMAT;
+		dsc.caps        = DSCAPS_PREMULTIPLIED;
+		dsc.width       = imgsurf->width;
+		dsc.height      = imgsurf->height;
+		dsc.pixelformat = _dfb_format_from_cairo_format(imgsurf->format);
+
+		IDirectFBSurface *buffer;
+		destination->dfb->CreateSurface(destination->dfb, &dsc, &buffer);
+
+		DFBRectangle rb = {0, 0, imgsurf->width, imgsurf->height};
+		buffer->Write(buffer,  &rb, imgsurf->data, imgsurf->stride);
+#if 0
+		fprintf(stderr, "TODO: %s has_current_point = %d, need_move_to = %d, has_extents = %d, has_curve_to = %d\n",
+		        __func__, path->has_current_point, path->needs_move_to, path->has_extents, path->has_curve_to);
+		fprintf(stderr, "TODO: %s stroke_is_rectilinear = %d, fill_is_rectilinear = %d, fill_maybe_region = %d, fill_is_empty = %d\n",
+			__func__, path->stroke_is_rectilinear, path->fill_is_rectilinear, path->fill_maybe_region, path->fill_is_empty);
+		fprintf(stderr, "TODO: %s, 1: (%d, %d, %d, %d)\n", __func__, r1.x, r1.y, r1.w, r1.h);
+		fprintf(stderr, "TODO: %s, 2: (%d, %d, %d, %d)\n", __func__, r2.x, r2.y, r2.w, r2.h);
+#endif
+
+		dst->Blit(dst, buffer, &r2, r1.x, r1.y);
+#if 0
+		fprintf(stderr, "Pattern matrix: %f, %f, %f, %f, %f, %f\n",
+			matrix->xx, matrix->xy,
+			matrix->yx, matrix->yy,
+			matrix->x0, matrix->y0);
+#endif
+
+		//dst->Write(dst, &r, imgsurf->data, imgsurf->stride);
+		buffer->Release(buffer);
+	}
+
+	return CAIRO_INT_STATUS_SUCCESS;
+}
+
+static cairo_int_status_t
+_cairo_dfb_surface_fill (void *abstract_surface,
+			 cairo_operator_t op,
+			 const cairo_pattern_t *pattern,
+			 const cairo_path_fixed_t *path,
+			 cairo_fill_rule_t fill_rule,
+			 double tolerance,
+			 cairo_antialias_t antialias,
+			 const cairo_clip_t *clip)
+{
+	cairo_dfb_surface_t *dest = abstract_surface;
+
+	/*
+	 * TODO: Find out what to do with:
+	 * - op
+	 * - fill_rule
+	 * - tolerance
+	 * - antialias
+	 */
+
+	cairo_int_status_t status = _cairo_dfb_surface_set_clip(dest, clip);
+	if (unlikely (status))
+		return status;
+
+	switch (pattern->type) {
+
+	case CAIRO_PATTERN_TYPE_SOLID:
+		return _cairo_dfb_surface_fill_solid(dest, op, pattern, path);
+
+	case CAIRO_PATTERN_TYPE_SURFACE:
+		return _cairo_dfb_surface_fill_surface(dest, pattern, path);
+
+	case CAIRO_PATTERN_TYPE_LINEAR:
+		fprintf(stderr, "TODO: %s, Pattern LINEAR\n", __func__);
+		break;
+	case CAIRO_PATTERN_TYPE_RADIAL:
+		fprintf(stderr, "TODO: %s, Pattern RADIAL\n", __func__);
+		break;
+	case CAIRO_PATTERN_TYPE_MESH:
+		fprintf(stderr, "TODO: %s, Pattern MESH\n", __func__);
+		break;
+	case CAIRO_PATTERN_TYPE_RASTER_SOURCE:
+		fprintf(stderr, "TODO: %s, Pattern RASTER_SOURCE\n", __func__);
+		break;
+	default:
+		ASSERT_NOT_REACHED;
+	}
+
+	return _cairo_surface_fallback_fill (abstract_surface, op,
+	                                     pattern, path, fill_rule,
+	                                     tolerance, antialias, clip);
+}
+
+#if 0
 static cairo_int_status_t
 _cairo_dfb_surface_fill_rectangles (void                  *abstract_surface,
                                          cairo_operator_t       op,
@@ -464,81 +714,88 @@ _cairo_dfb_surface_fill_rectangles (void                  *abstract_surface,
 
 static cairo_surface_backend_t
 _cairo_dfb_surface_backend = {
-    CAIRO_SURFACE_TYPE_DIRECTFB, /*type*/
-    _cairo_dfb_surface_finish, /*finish*/
-    _cairo_default_context_create,
+	CAIRO_SURFACE_TYPE_DIRECTFB, /*type*/
+	_cairo_dfb_surface_finish, /*finish*/
+	_cairo_default_context_create,
 
-    _cairo_dfb_surface_create_similar,/*create_similar*/
-    NULL, /* create similar image */
-    _cairo_dfb_surface_map_to_image,
-    _cairo_dfb_surface_unmap_image,
+	_cairo_dfb_surface_create_similar,/*create_similar*/
+	NULL, /* create similar image */
+	_cairo_dfb_surface_map_to_image,
+	_cairo_dfb_surface_unmap_image,
 
-    _cairo_surface_default_source,
-    _cairo_surface_default_acquire_source_image,
-    _cairo_surface_default_release_source_image,
-    NULL,
+	_cairo_surface_default_source,
+	_cairo_surface_default_acquire_source_image,
+	_cairo_surface_default_release_source_image,
+	NULL,
 
-    NULL, /* copy_page */
-    NULL, /* show_page */
+	NULL, /* copy_page */
+	NULL, /* show_page */
 
-    _cairo_image_surface_get_extents,
-    _cairo_image_surface_get_font_options,
+	_cairo_image_surface_get_extents,
+	_cairo_image_surface_get_font_options,
 
-    _cairo_dfb_surface_flush,
-    NULL, /* mark_dirty_rectangle */
+	_cairo_dfb_surface_flush,
+	NULL, /* mark_dirty_rectangle */
 
-    _cairo_surface_fallback_paint,
-    _cairo_surface_fallback_mask,
-    _cairo_surface_fallback_stroke,
-    _cairo_surface_fallback_fill,
-    NULL, /* fill-stroke */
-    _cairo_surface_fallback_glyphs,
+	_cairo_surface_fallback_paint,
+	_cairo_surface_fallback_mask,
+	_cairo_surface_fallback_stroke,
+	_cairo_dfb_surface_fill, /*_cairo_surface_fallback_fill,*/
+	NULL, /* fill-stroke */
+	_cairo_surface_fallback_glyphs,
 };
 
 cairo_surface_t *
 cairo_directfb_surface_create (IDirectFB *dfb, IDirectFBSurface *dfbsurface)
 {
-    cairo_dfb_surface_t *surface;
-    DFBSurfacePixelFormat     format;
-    DFBSurfaceCapabilities caps;
-    pixman_format_code_t pixman_format;
-    int width, height;
+	cairo_dfb_surface_t *surface;
+	DFBSurfacePixelFormat     format;
+	DFBSurfaceCapabilities caps;
+	pixman_format_code_t pixman_format;
+	int width, height;
 
-    D_ASSERT (dfb != NULL);
-    D_ASSERT (dfbsurface != NULL);
+	D_ASSERT (dfb != NULL);
+	D_ASSERT (dfbsurface != NULL);
 
-    dfbsurface->GetPixelFormat (dfbsurface, &format);
-    dfbsurface->GetSize (dfbsurface, &width, &height);
+	dfbsurface->GetPixelFormat (dfbsurface, &format);
+	dfbsurface->GetSize (dfbsurface, &width, &height);
 
-    pixman_format = _directfb_to_pixman_format (format);
-    if (! pixman_format_supported_destination (pixman_format))
-        return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_FORMAT));
+	pixman_format = _directfb_to_pixman_format (format);
+	if (! pixman_format_supported_destination (pixman_format))
+		return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_INVALID_FORMAT));
 
-    surface = calloc (1, sizeof (cairo_dfb_surface_t));
-    if (surface == NULL)
-        return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
+	surface = calloc (1, sizeof (cairo_dfb_surface_t));
+	if (surface == NULL)
+		return _cairo_surface_create_in_error (_cairo_error (CAIRO_STATUS_NO_MEMORY));
 
-    /* XXX dfb -> device */
-    _cairo_surface_init (&surface->image.base,
-                         &_cairo_dfb_surface_backend,
-			 NULL, /* device */
-			 _directfb_format_to_content (format));
+	/* XXX dfb -> device */
+	_cairo_surface_init (&surface->image.base,
+	                     &_cairo_dfb_surface_backend,
+	                     NULL, /* device */
+	                     _directfb_format_to_content (format));
 
-    surface->image.pixman_format = pixman_format;
-    surface->image.format = _cairo_format_from_pixman_format (pixman_format);
+	surface->image.pixman_format = pixman_format;
+	surface->image.format = _cairo_format_from_pixman_format (pixman_format);
 
-    surface->image.width = width;
-    surface->image.height = height;
-    surface->image.depth = PIXMAN_FORMAT_DEPTH(pixman_format);
+	surface->image.width = width;
+	surface->image.height = height;
+	surface->image.depth = PIXMAN_FORMAT_DEPTH(pixman_format);
 
-    surface->dfb = dfb;
-    surface->dfb_surface = dfbsurface;
-    dfbsurface->AddRef (dfbsurface);
+	surface->dfb = dfb;
+	surface->dfb_surface = dfbsurface;
+	dfbsurface->AddRef (dfbsurface);
 
-    dfbsurface->GetCapabilities (dfbsurface, &caps);
-    if (caps & DSCAPS_PREMULTIPLIED)
-	surface->blit_premultiplied = TRUE;
+	dfbsurface->GetCapabilities (dfbsurface, &caps);
+	if (caps & DSCAPS_PREMULTIPLIED)
+		surface->blit_premultiplied = TRUE;
 
-    return &surface->image.base;
+	return &surface->image.base;
 }
 slim_hidden_def(cairo_directfb_surface_create);
+
+IDirectFBSurface *
+cairo_directfb_surface_get_surface (cairo_surface_t *surface)
+{
+	cairo_dfb_surface_t *dfb_surface = (cairo_dfb_surface_t *)surface;
+	return dfb_surface->dfb_surface;
+}
