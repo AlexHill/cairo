@@ -225,6 +225,70 @@ _cairo_dfb_surface_unmap_image (void                  *abstract_surface,
 }
 
 static cairo_status_t
+_cairo_dfb_surface_acquire_source_image (void *abstract_surface,
+                                         cairo_image_surface_t **image_out,
+                                         void **image_extra)
+{
+#if 0
+    cairo_qt_surface_t *qs = (cairo_qt_surface_t *) abstract_surface;
+
+    D(fprintf(stderr, "q[%p] acquire_source_image\n", abstract_surface));
+
+    *image_extra = NULL;
+
+    if (qs->image_equiv) {
+        *image_out = (cairo_image_surface_t*)
+                     cairo_surface_reference (qs->image_equiv);
+
+        return CAIRO_STATUS_SUCCESS;
+    }
+
+    if (qs->pixmap) {
+        QImage *qimg = new QImage(qs->pixmap->toImage());
+	cairo_surface_t *image;
+	cairo_status_t status;
+
+        image = cairo_image_surface_create_for_data (qimg->bits(),
+						     _cairo_format_from_qimage_format (qimg->format()),
+						     qimg->width(), qimg->height(),
+						     qimg->bytesPerLine());
+
+	status = _cairo_user_data_array_set_data (&image->user_data,
+						  (const cairo_user_data_key_t *)&_qimg_destroy,
+						  qimg,
+						  _qimg_destroy);
+	if (status) {
+	    cairo_surface_destroy (image);
+	    return status;
+	}
+
+	*image_out = (cairo_image_surface_t *) image;
+        return CAIRO_STATUS_SUCCESS;
+    }
+
+    return _cairo_error (CAIRO_STATUS_NO_MEMORY);
+#endif
+
+    fprintf(stderr, "TODO: %s\n", __func__);
+    return CAIRO_INT_STATUS_SUCCESS;
+}
+
+static void
+_cairo_dfb_surface_release_source_image (void *abstract_surface,
+                                         cairo_image_surface_t *image,
+                                         void *image_extra)
+{
+#if 0
+    //cairo_qt_surface_t *qs = (cairo_qt_surface_t *) abstract_surface;
+
+    D(fprintf(stderr, "q[%p] release_source_image\n", abstract_surface));
+
+    cairo_surface_destroy (&image->base);
+#endif
+    fprintf(stderr, "TODO: %s\n", __func__);
+}
+
+static cairo_status_t
 _cairo_dfb_surface_flush (void     *abstract_surface,
 			  unsigned flags)
 {
@@ -244,6 +308,70 @@ _cairo_dfb_surface_flush (void     *abstract_surface,
 }
 
 #if 0
+static cairo_status_t
+_cairo_dfb_path_move_to (void *closure, const cairo_point_t *point)
+{
+	double x = _cairo_fixed_to_double (point->x);
+	double y = _cairo_fixed_to_double (point->y);
+
+	fprintf(stderr, "  -> Move To: (%f, %f)\n", x, y);
+
+	return CAIRO_STATUS_SUCCESS;
+}
+
+static cairo_status_t
+_cairo_dfb_path_line_to (void *closure, const cairo_point_t *point)
+{
+	double x = _cairo_fixed_to_double (point->x);
+	double y = _cairo_fixed_to_double (point->y);
+
+	fprintf(stderr, "  -> Line To: (%f, %f)\n", x, y);
+
+	return CAIRO_STATUS_SUCCESS;
+}
+
+static cairo_status_t
+_cairo_dfb_path_curve_to (void *closure,
+                          const cairo_point_t *p0,
+			  const cairo_point_t *p1,
+			  const cairo_point_t *p2)
+{
+	double x0 = _cairo_fixed_to_double (p0->x);
+	double y0 = _cairo_fixed_to_double (p0->y);
+	double x1 = _cairo_fixed_to_double (p1->x);
+	double y1 = _cairo_fixed_to_double (p1->y);
+	double x2 = _cairo_fixed_to_double (p2->x);
+	double y2 = _cairo_fixed_to_double (p2->y);
+
+	fprintf(stderr, "  -> Curve To: (%f, %f), (%f, %f), (%f, %f)\n", x0, y0, x1, y1, x2, y2);
+
+	return CAIRO_STATUS_SUCCESS;
+}
+
+static cairo_status_t
+_cairo_dfb_path_close (void *closure)
+{
+
+	return CAIRO_STATUS_SUCCESS;
+}
+
+static cairo_status_t
+_cairo_dfb_path_print(const cairo_path_fixed_t *path)
+{
+	cairo_status_t status;
+
+	fprintf(stderr, "<Begin path>\n");
+	status = _cairo_path_fixed_interpret (path,
+	                                      _cairo_dfb_path_move_to,
+	                                      _cairo_dfb_path_line_to,
+	                                      _cairo_dfb_path_curve_to,
+	                                      _cairo_dfb_path_close,
+					      NULL);
+	fprintf(stderr, "<Close path>\n");
+
+	return status;
+}
+
 static inline DFBSurfacePixelFormat
 _directfb_from_pixman_format (pixman_format_code_t format)
 {
@@ -306,7 +434,7 @@ _cairo_dfb_is_op_supported (cairo_operator_t operator)
 	case CAIRO_OPERATOR_HSL_COLOR:
 	case CAIRO_OPERATOR_HSL_LUMINOSITY:
 	default:
-		fprintf(stderr, "Unsupported operation: %s\n");
+		fprintf(stderr, "Unsupported cairo operator: %d\n", operator);
 		return FALSE;
 	}
 }
@@ -363,17 +491,24 @@ _cairo_operator_to_dfb_porter_duff (cairo_operator_t operator)
 	}
 }
 
+#if 0
 static cairo_bool_t
 _directfb_get_operator (cairo_operator_t         operator,
                         cairo_content_t          content,
                         const cairo_pattern_t   *pattern,
                         DFBSurfaceBlendFunction *ret_srcblend,
                         DFBSurfaceBlendFunction *ret_dstblend)
+#else
+static cairo_bool_t
+_directfb_get_operator (cairo_operator_t         operator,
+                        DFBSurfaceBlendFunction *ret_srcblend,
+                        DFBSurfaceBlendFunction *ret_dstblend)
+#endif
 {
 	DFBSurfaceBlendFunction srcblend = DSBF_ONE;
 	DFBSurfaceBlendFunction dstblend = DSBF_ZERO;
 
-	fprintf(stderr, "Operation: %d, content = %x\n", operator, content);
+	fprintf(stderr, "Operation: %d\n", operator);
 
 	switch (operator) {
 	case CAIRO_OPERATOR_CLEAR:
@@ -453,7 +588,7 @@ _directfb_get_operator (cairo_operator_t         operator,
 	default:
 		return FALSE;
 	}
-
+#if 0
 	if (pattern->type == CAIRO_PATTERN_TYPE_SOLID) {
 		const cairo_solid_pattern_t *solid = (cairo_solid_pattern_t *)(pattern);
 
@@ -481,55 +616,12 @@ _directfb_get_operator (cairo_operator_t         operator,
 		else if (dstblend == DSBF_INVDESTALPHA)
 			dstblend = DSBF_ZERO;
 	}
-
+#endif
 	*ret_srcblend = srcblend;
 	*ret_dstblend = dstblend;
 
 	return TRUE;
 }
-#if 0
-#define RUN_CLIPPED(surface, clip_region, clip, func) {\
-    if ((clip_region) != NULL) {\
-	int n_clips = cairo_region_num_rectangles (clip_region), n; \
-        for (n = 0; n < n_clips; n++) {\
-            if (clip) {\
-                DFBRegion  reg, *cli = (clip); \
-		cairo_rectangle_int_t rect; \
-		cairo_region_get_rectangle (clip_region, n, &rect); \
-		reg.x1 = rect.x; \
-		reg.y1 = rect.y; \
-		reg.x2 = rect.x + rect.width - 1; \
-		reg.y2 = rect.y + rect.height - 1; \
-                if (reg.x2 < cli->x1 || reg.y2 < cli->y1 ||\
-                    reg.x1 > cli->x2 || reg.y1 > cli->y2)\
-                    continue;\
-                if (reg.x1 < cli->x1)\
-                    reg.x1 = cli->x1;\
-                if (reg.y1 < cli->y1)\
-                    reg.y1 = cli->y1;\
-                if (reg.x2 > cli->x2)\
-                    reg.x2 = cli->x2;\
-                if (reg.y2 > cli->y2)\
-                    reg.y2 = cli->y2;\
-                (surface)->dfbsurface->SetClip ((surface)->dfbsurface, &reg);\
-            } else {\
-		DFBRegion reg; \
-		cairo_rectangle_int_t rect; \
-		cairo_region_get_rectangle (clip_region, n, &rect); \
-		reg.x1 = rect.x; \
-		reg.y1 = rect.y; \
-		reg.x2 = rect.x + rect.width - 1; \
-		reg.y2 = rect.y + rect.height - 1; \
-                (surface)->dfbsurface->SetClip ((surface)->dfbsurface, &reg); \
-            }\
-            func;\
-        }\
-    } else {\
-        (surface)->dfbsurface->SetClip ((surface)->dfbsurface, clip);\
-        func;\
-    }\
-}
-#endif
 
 static DFBSurfacePixelFormat
 _dfb_format_from_cairo_format (cairo_format_t fmt)
@@ -614,21 +706,56 @@ _cairo_dfb_surface_set_clip (cairo_dfb_surface_t *ds,
 }
 
 static cairo_int_status_t
-_cairo_dfb_surface_fill_solid (cairo_dfb_surface_t      *destination,
+_cairo_dfb_surface_fill_solid (cairo_dfb_surface_t      *ds,
                                cairo_operator_t          op,
                                const cairo_pattern_t    *pattern,
 			       const cairo_path_fixed_t *path)
 {
 	const cairo_solid_pattern_t *solid = (cairo_solid_pattern_t *)(pattern);
+	DFBSurfaceBlendFunction sblend, dblend;
+	DFBSurfaceDrawingFlags flags;
 	DFBRectangle rect;
 	u8 r, g, b, a;
 	cairo_box_t box;
 
-	//assert (_cairo_path_fixed_is_rectangle(path, &box));
-	if (! _cairo_path_fixed_is_rectangle(path, &box)) {
-		fprintf(stderr, "TODO: Unsupported, non-rectangular solid fill!\n");
-		return CAIRO_INT_STATUS_SUCCESS;
+	if (! _cairo_path_fixed_is_rectangle(path, &box))
+		return CAIRO_INT_STATUS_UNSUPPORTED;
+
+	if (! _directfb_get_operator(op, &sblend, &dblend))
+		return CAIRO_INT_STATUS_UNSUPPORTED;
+
+	flags = (sblend == DSBF_ONE && dblend == DSBF_ZERO) ? DSDRAW_NOFX : DSDRAW_BLEND;
+	ds->dfb_surface->SetDrawingFlags (ds->dfb_surface, flags);
+	if (flags & DSDRAW_BLEND) {
+		ds->dfb_surface->SetSrcBlendFunction (ds->dfb_surface, sblend);
+		ds->dfb_surface->SetDstBlendFunction (ds->dfb_surface, dblend);
 	}
+
+	if (CAIRO_COLOR_IS_OPAQUE ((&solid->color))) {
+		if (sblend == DSBF_SRCALPHA)
+			sblend = DSBF_ONE;
+		else if (sblend == DSBF_INVSRCALPHA)
+			sblend = DSBF_ZERO;
+
+		if (dblend == DSBF_SRCALPHA)
+			dblend = DSBF_ONE;
+		else if (dblend == DSBF_INVSRCALPHA)
+			dblend = DSBF_ZERO;
+	}
+
+#if 0
+	if ((content & CAIRO_CONTENT_ALPHA) == 0) {
+		if (srcblend == DSBF_DESTALPHA)
+			srcblend = DSBF_ONE;
+		else if (srcblend == DSBF_INVDESTALPHA)
+			srcblend = DSBF_ZERO;
+
+		if (dstblend == DSBF_DESTALPHA)
+			dstblend = DSBF_ONE;
+		else if (dstblend == DSBF_INVDESTALPHA)
+			dstblend = DSBF_ZERO;
+	}
+#endif
 
 	r = solid->color.red_short;
 	g = solid->color.green_short;
@@ -637,12 +764,16 @@ _cairo_dfb_surface_fill_solid (cairo_dfb_surface_t      *destination,
 
 	rect = _dfb_rect_from_cairo_box (box);
 
-#if 0
-	fprintf(stderr, "%s, (%d, %d, %d, %d)\n", __func__, rect.x, rect.y, rect.w, rect.h);
-#endif
+	fprintf(stderr, "%s, (%d, %d, %d, %d) -> (r:%d, g:%d, b:%d, a:%d)\n",
+	        __func__, rect.x, rect.y, rect.w, rect.h, r, g, b, a);
+	int w, h;
+	ds->dfb_surface->GetSize (ds->dfb_surface, &w, &h);
+	fprintf(stderr, "Surface size: %d, %d\n", w, h);
 
-	destination->dfb_surface->SetColor (destination->dfb_surface, r, g, b, a);
-	destination->dfb_surface->FillRectangle (destination->dfb_surface, rect.x, rect.y, rect.w, rect.h);
+	if (DFB_OK != ds->dfb_surface->SetColor (ds->dfb_surface, r, g, b, a))
+		fprintf(stderr, "Failed to set color!\n");
+	if (DFB_OK != ds->dfb_surface->FillRectangle (ds->dfb_surface, rect.x, rect.y, rect.w, rect.h))
+		fprintf(stderr, "Failed to fill rectangle!\n");
 
 	return CAIRO_INT_STATUS_SUCCESS;
 }
@@ -655,8 +786,11 @@ _cairo_dfb_surface_fill_surface (cairo_dfb_surface_t      *destination,
 {
 	const cairo_surface_pattern_t *spattern = (cairo_surface_pattern_t *)(pattern);
 	cairo_surface_t *surface = spattern->surface;
-	//IDirectFBSurface *src = surface->dfb_surface;
 	IDirectFBSurface *dst = destination->dfb_surface;
+	cairo_box_t box;
+
+	if (! _cairo_path_fixed_is_rectangle(path, &box))
+		return CAIRO_INT_STATUS_UNSUPPORTED;
 
 	if (surface->type == CAIRO_SURFACE_TYPE_DIRECTFB) {
 		fprintf(stderr, "%s, CAIRO_SURFACE_TYPE_DIRECTFB\n", __func__);
@@ -669,17 +803,13 @@ _cairo_dfb_surface_fill_surface (cairo_dfb_surface_t      *destination,
 			void *image_extra;
 			if (_cairo_surface_acquire_source_image (surface, &imgsurf, &image_extra) != CAIRO_STATUS_SUCCESS) {
 				return CAIRO_INT_STATUS_UNSUPPORTED;
+			} else {
+				imgsurf = NULL;
 			}
 		}
 
-		if (!imgsurf->data || (imgsurf->width * imgsurf->height) == 0) {
-			fprintf(stderr, "FIXME: NULL data?\n");
-			return CAIRO_INT_STATUS_SUCCESS;
-
-		}
-
-		cairo_box_t box;
-		assert(_cairo_path_fixed_is_rectangle(path, &box));
+		if (imgsurf == NULL || (imgsurf->width * imgsurf->height) == 0)
+			return CAIRO_INT_STATUS_UNSUPPORTED;
 
 		DFBRectangle r1 = _dfb_rect_from_cairo_box(box);
 		DFBRectangle r2 = _dfb_rect_from_cairo_box_translate(box, &pattern->matrix);
@@ -691,22 +821,27 @@ _cairo_dfb_surface_fill_surface (cairo_dfb_surface_t      *destination,
 		dsc.height      = imgsurf->height;
 		dsc.pixelformat = _dfb_format_from_cairo_format (imgsurf->format);
 
-		IDirectFBSurface *buffer;
-		destination->dfb->CreateSurface(destination->dfb, &dsc, &buffer);
+		IDirectFBSurface *buffer = NULL;
+		if (DFB_OK != destination->dfb->CreateSurface(destination->dfb, &dsc, &buffer))
+		{
+			assert(false);
+			return CAIRO_INT_STATUS_UNSUPPORTED;
+		}
 
 		DFBRectangle rb = {0, 0, imgsurf->width, imgsurf->height};
 		buffer->Write(buffer, &rb, imgsurf->data, imgsurf->stride);
-#if 0
-		fprintf(stderr, "%s, (%d, %d, %d, %d)->(%d, %d, %d, %d)\n",
-			__func__, r2.x, r2.y, r2.w, r2.h, r1.x, r1.y, r1.w, r1.h);
-#endif
 
+		dst->SetDrawingFlags (dst, DSDRAW_BLEND);
 		dst->SetPorterDuff(dst, _cairo_operator_to_dfb_porter_duff (op));
-		dst->Blit(dst, buffer, &r2, r1.x, r1.y);
 
-		//buffer->Dump(buffer, "/home/tworaz/tmp", "buffer_");
+		if (pattern->extend == CAIRO_EXTEND_NONE) {
+			dst->Blit(dst, buffer, &r2, r1.x, r1.y);
+		} else if (pattern->extend == CAIRO_EXTEND_REPEAT) {
+			dst->TileBlit(dst, buffer, &r2, r1.x, r1.y);
+		} else {
+			fprintf(stderr, "TODO: %s, Unsupported extend type: %d\n", __func__, pattern->extend);
+		}
 
-		//dst->Write(dst, &r, imgsurf->data, imgsurf->stride);
 		buffer->Release(buffer);
 	}
 
@@ -739,17 +874,6 @@ _cairo_dfb_surface_fill (void *abstract_surface,
 		                                     pattern, path, fill_rule,
 		                                     tolerance, antialias, clip);
 
-	//fprintf(stderr, "%s, operator=%d, fill_rule=%d\n", __func__, op, fill_rule);
-
-#if 0
-	flags = (sblend == DSBF_ONE && dblend == DSBF_ZERO) ? DSDRAW_NOFX : DSDRAW_BLEND;
-	dest->dfb_surface->SetDrawingFlags (dest->dfb_surface, flags);
-	if (flags & DSDRAW_BLEND) {
-		dest->dfb_surface->SetSrcBlendFunction (dest->dfb_surface, sblend);
-		dest->dfb_surface->SetDstBlendFunction (dest->dfb_surface, dblend);
-	}
-#endif
-
 	cairo_int_status_t status = _cairo_dfb_surface_set_clip (dest, clip);
 	if (unlikely (status))
 		return status;
@@ -757,10 +881,12 @@ _cairo_dfb_surface_fill (void *abstract_surface,
 	switch (pattern->type) {
 
 	case CAIRO_PATTERN_TYPE_SOLID:
-		return _cairo_dfb_surface_fill_solid (dest, op, pattern, path);
+		status = _cairo_dfb_surface_fill_solid (dest, op, pattern, path);
+		break;
 
 	case CAIRO_PATTERN_TYPE_SURFACE:
-		return _cairo_dfb_surface_fill_surface (dest, op, pattern, path);
+		status = _cairo_dfb_surface_fill_surface (dest, op, pattern, path);
+		break;
 
 	case CAIRO_PATTERN_TYPE_LINEAR:
 		fprintf(stderr, "TODO: %s, Pattern LINEAR\n", __func__);
@@ -778,35 +904,13 @@ _cairo_dfb_surface_fill (void *abstract_surface,
 		ASSERT_NOT_REACHED;
 	}
 
-	return _cairo_surface_fallback_fill (abstract_surface, op,
-	                                     pattern, path, fill_rule,
-	                                     tolerance, antialias, clip);
-}
-
-static cairo_int_status_t
-_cairo_dfb_surface_paint (void *abstract_surface,
-                          cairo_operator_t op,
-                          const cairo_pattern_t *source,
-                          const cairo_clip_t *clip)
-{
-	fprintf(stderr, "TODO: %s\n", __func__);
-	return CAIRO_INT_STATUS_SUCCESS;
-}
-
-static cairo_int_status_t
-_cairo_dfb_surface_stroke (void *abstract_surface,
-                           cairo_operator_t op,
-                           const cairo_pattern_t *source,
-                           const cairo_path_fixed_t *path,
-                           const cairo_stroke_style_t *style,
-                           const cairo_matrix_t *ctm,
-                           const cairo_matrix_t *ctm_inverse,
-                           double tolerance,
-                           cairo_antialias_t antialias,
-                           const cairo_clip_t *clip)
-{
-	fprintf(stderr, "TODO: %s\n", __func__);
-	return CAIRO_INT_STATUS_SUCCESS;
+	if (status == CAIRO_INT_STATUS_UNSUPPORTED) {
+		return _cairo_surface_fallback_fill (abstract_surface, op,
+		                                     pattern, path, fill_rule,
+		                                     tolerance, antialias, clip);
+	} else {
+		return status;
+	}
 }
 
 static cairo_int_status_t
@@ -818,8 +922,58 @@ _cairo_dfb_surface_show_glyphs (void *abstract_surface,
 			        cairo_scaled_font_t *scaled_font,
 			        const cairo_clip_t *clip)
 {
-	fprintf(stderr, "TODO: %s\n", __func__);
+#if 0
+	cairo_dfb_surface_t *ds = (cairo_dfb_surface_t *) abstract_surface;
+	IDirectFBSurface *dest = ds->dfb_surface;
+	IDirectFB *dfb = ds->dfb;
+	int currentGlyph;
+
+	cairo_solid_pattern_t *solid = (cairo_solid_pattern_t *) source;
+
+	IDirectFBFont *font;
+	DFBFontDescription fontDesc;
+
+	_cairo_scaled_font_freeze_cache(scaled_font);
+
+	FT_Face face = cairo_ft_scaled_font_lock_face (scaled_font);
+	const FT_Size_Metrics ftMetrics = face->size->metrics;
+
+	fontDesc.flags = DFDESC_ATTRIBUTES | DFDESC_HEIGHT | DFDESC_WIDTH;
+	fontDesc.width = ftMetrics.x_ppem;
+	fontDesc.height = ftMetrics.y_ppem;
+	fontDesc.attributes = DFFA_NOCHARMAP;
+
+	if (face->style_flags & FT_STYLE_FLAG_BOLD)
+		fontDesc.attributes |= DFFA_STYLE_BOLD;
+	if (face->style_flags & FT_STYLE_FLAG_ITALIC)
+		fontDesc.attributes |= DFFA_STYLE_ITALIC;
+	if (!(face->face_flags & FT_FACE_FLAG_KERNING))
+		fontDesc.attributes |= DFFA_NOKERNING;
+
+	cairo_ft_scaled_font_unlock_face (scaled_font);
+
+	if (DFB_OK != dfb->CreateFont(dfb, "/usr/share/fonts/dejavu/DejaVuSans.ttf", &fontDesc, &font))
+		fprintf(stderr, "Failed to create font!\n");
+
+	dest->SetFont(dest, font);
+	dest->SetColor(dest, solid->color.red * 255, solid->color.green * 255,
+	               solid->color.blue * 255, solid->color.alpha * 255);
+
+	for (currentGlyph = 0; currentGlyph < num_glyphs; currentGlyph++) {
+		dest->DrawGlyph(dest, glyphs[currentGlyph].index, glyphs[currentGlyph].x,
+		                glyphs[currentGlyph].y, DSTF_LEFT);
+	}
+
+	//fprintf(stderr, "Font family: %s, w=%d, h=%d\n", face->family_name, fontDesc.width, fontDesc.height);
+
+	_cairo_scaled_font_thaw_cache(scaled_font);
+
 	return CAIRO_INT_STATUS_SUCCESS;
+#else
+	return _cairo_surface_fallback_glyphs (abstract_surface, op,
+	                                       source, glyphs, num_glyphs,
+	                                       scaled_font, clip);
+#endif
 }
 
 static cairo_surface_backend_t
@@ -836,7 +990,7 @@ _cairo_dfb_surface_backend = {
 	_cairo_surface_default_source,
 	_cairo_surface_default_acquire_source_image,
 	_cairo_surface_default_release_source_image,
-	NULL,
+	NULL, /* snapshot */
 
 	NULL, /* copy_page */
 	NULL, /* show_page */
@@ -847,9 +1001,9 @@ _cairo_dfb_surface_backend = {
 	_cairo_dfb_surface_flush,
 	NULL, /* mark_dirty_rectangle */
 
-	_cairo_dfb_surface_paint,
+	_cairo_surface_fallback_paint,
 	_cairo_surface_fallback_mask,
-	_cairo_dfb_surface_stroke,
+	_cairo_surface_fallback_stroke,
 	_cairo_dfb_surface_fill,
 	NULL, /* fill-stroke */
 	_cairo_dfb_surface_show_glyphs
